@@ -10,6 +10,8 @@ The group was formed by me and my University colleagues Marco Bergamo and Lorenz
 
 Data on crops and weather conditions are in the pannelli "folder", while relazione_finale.R contains the R code for the analysis. File relazione_finale.Rmd is used to produce relazione_finale.html.
 
+The entire project was conducted in Italian (code comments and final report).
+
 ## Italian description
 
 Studio della crescita delle diverse colture in campi dove sono stati collocati pannelli fotovoltaici, progetto di gruppo finale per il corso di Statistica Iterazione.
@@ -19,3 +21,5 @@ I dati sono stati forniti da un'azienda agricola locale. Abbiamo studiato la rel
 Il gruppo è stato formato da me e dai miei colleghi di Università Marco Bergamo e Lorenzo Chiurato.
 
 I dati sulle colture e le condizioni meteorologiche sono nella cartella "pannelli", mentre relazione_finale.R contiene il codice R per l'analisi. Il file relazione_finale.Rmd viene usato per produrre relazione_finale.html.
+
+L'intero progetto è stato svolto in italiano (commenti ai codici e relazione finale).
