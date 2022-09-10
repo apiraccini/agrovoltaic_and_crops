@@ -11,7 +11,7 @@ The group was formed by me and my University colleagues Marco Bergamo and Lorenz
 
 ## Italian description
 
-Studio della crescita delle diverse colture in campi dove sono stati collocati pannelli fotovoltaici, progetto finale di gruppo per il corso di Statistica Iterazione.
+Studio della crescita delle diverse colture in campi dove sono stati collocati pannelli fotovoltaici, progetto di gruppo finale per il corso di Statistica Iterazione.
 
 I dati sono stati forniti da un'azienda agricola locale. Abbiamo studiato la relazione tra la crescita delle piante e le diverse modalità di esposizione alla luce solare per ogni coltura, al fine di valutare se una certa misura di ombreggiatura fosse effettivamente benefica per le piante rispetto all'esposizione diretta alla luce solare, considerando anche per gli andamenti metereologici. Abbiamo scoperto che per la maggior parte di loro un certo grado di ombra funziona meglio per la crescita globale della pianta.
 
