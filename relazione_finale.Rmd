@@ -1,0 +1,801 @@
+---
+title: "Progetto per il corso di Statistica Iterazione"
+author: "Marco Bergamo, Lorenzo Chiurato, Alessio Piraccini"
+date: "A.A 2021/2022"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: yes
+subtitle: Dataset pannelli
+lang: it-IT
+editor_options:
+  chunk_output_type: console
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+knitr::opts_chunk$set(eval = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(error = F)
+knitr::opts_chunk$set(message = F)
+knitr::opts_chunk$set(tidy = T)
+knitr::opts_chunk$set(comment = ">")
+knitr::opts_chunk$set(fig.align = "center")
+library(tidyverse)
+```
+
+# I dati
+
+Si definisce agrovoltaico un sistema di sviluppo delle energie rinnovabili che sfrutta i terreni agricoli per produrre energia solare, ma senza entrare in competizione con la produzione di cibo e senza consumare suolo, e potenzialmente, incrementando la resa agricola tramite l'ombreggiamento.
+
+Un impianto agrovoltaico consiste nel posizionamento di pannelli fotovoltaici a circa 5 m dal suolo, liberi di ruotare attorno ad 1 o 2 assi tra loro ortogonali. In base alla rotazione dei pannelli si genera un ombreggiamento del terreno agricolo sottostante, regolabile in base alle specifiche necessità del sito. La rotazione è gestita elettronicamente in modo tale che i pannelli siano sempre orientati verso il sole, ed evita così che si facciano ombra l'uno con l'altro.
+
+I dati in esame si riferiscono all'osservazione della crescita di diverse specie di piante (pomodori, insalata, zucca, patate, meloni, fagioli, erba medica e piante ornamentali) su terreni sui quali è presente un impianto agrovoltaico. L'esperimento, effettuato per un certo numero di settimane a partire dalla primavera 2021, ha previsto la rilevazione della crescita delle diverse colture in terreni adiacenti ma con diversi livelli di irraggiamento solare, in base all'orientamento dei pannelli. Sono inoltre disponibili informazioni sul meteo.
+
+Di seguito sono descritte le variabili rilevate per ciascuna delle coltivazioni (per alcune colture sono disponibili solo alcune delle variabili di seguito riportate); i file sono inclusi nella cartella
+*crescita*.
+
+-   *date*: data di rilevazione
+-   *week*: indicatore di settimana della rilevazione (varia a seconda della coltivazione da un minimo di 4 a un massimo di 19 rilevazioni)
+-   *light*: condizione di irraggiamento, a seconda dell'inclinazione del pannello; il trattamento applicato varia da coltivazione a coltivazione e può assumere le seguenti modalità:
+    -   *FL* trattamento "Full Light" in cui la pianta viene coltivata in condizioni di pieno sole
+    -   *SH60* trattamento "Shade 60" in condizioni di ombreggiamento medio del 60%
+    -   *HSH60* trattamento "Half Shade 60" in cui la pianta viene coltivata in condizioni di ombreggiamento medio del 60% ma solo parziale poiché si trova al centro tra due file di pannelli
+    -   *SH30* trattamento "Shade 30" in condizioni di ombreggiamento medio del 30%
+    -   *SH20* trattamento "Shade 20" in condizioni di ombreggiamento medio del 20%
+-   *area*: indicatore di area e irraggiamento (ex. 3SH30 significa area 3 con irraggiamento SH30)
+-   *plant*: indicatore di pianta, area e irraggiamento (ex. 43FL significa pianta 4 nell'area 3 con irraggiamento full light)
+-   *electro*: elettroconducibilità (in milliSiemens per centimetro), rappresenta una misura dello stato nutrizionale della pianta; di interesse (e disponibile) solo per le piante ornamentali.
+-   *misure di crescita*: a seconda della pianta, sono valutati tutti o alcuni dei seguenti indicatori di crescita:
+    -   *height*: altezza della pianta in cm
+    -   *diameter1*: misura 1 di diametro in cm
+    -   *diameter2*: misura 2 di diametro in cm
+    -   *number_leaves*: numero di foglie sulla pianta
+    -   *length_leaves*: lunghezza delle foglie sulla pianta
+    -   *number_flowers*: numero di fiori sulla pianta
+    -   *number_fruits*: numero di frutti sulla pianta
+    -   *presence_fruits*: presenza (1) o assenza (0) di frutti sulla pianta (0=absence, 1=presence)
+
+Inoltre, sono disponibili dati relativi al meteo, rilevati con cadenza oraria mediante sensori wireless collocati nelle aree trattate in diverse condizioni di irraggiamento (FL, SH60 etc, file inclusi nella cartella meteo) e riferiti alla temperatura del suolo e dell'aria, all'umidità del suolo e dell'area, al punto di rugiada, alla radiazione solare e alla bagnatura fogliare superiore e inferiore.
+
+# Obiettivi
+
+-   Il primo obiettivo è quello di valutare se e come le diverse condizioni di irraggiamento influiscano sulla crescita della pianta, al netto delle condizioni meteorologiche.
+-   Il secondo obiettivo è comprendere se e come coltivazioni diverse reagiscano in modo diverso (migliore o peggiore) all'installazione dei pannelli.
+-   Infine, si vuole sviluppare uno strumento semplice da fornire all'agronomo che con pochi dati di input (relativi alla crescita della pianta e all'andamento del meteo) gli permetta di capire come regolare i pannelli per produrre energia ottimizzando la produzione agricola.
+
+# Esplorazione dei dati
+
+```{r}
+# setup ------------------------------------------------------------------------
+
+rm(list = ls())
+
+proj_dir <- "~/R_Jobs/StatIterazione/progetto_iterazione"
+if (normalizePath(getwd()) != normalizePath(proj_dir)) setwd(proj_dir)
+
+library(tidyverse)
+library(ggfortify)
+library(equatiomatic)
+
+
+# lettura e preparazione dei dati ----------------------------------------------
+
+## crescita
+setwd("pannelli/crescita")
+
+# lettura dati
+piante_filenames <- list.files(pattern = ".csv")
+crescita <- lapply(piante_filenames, function(x) read.csv(x, header = T, sep = ","))
+names(crescita) <- gsub(".csv", "", piante_filenames)
+setwd(proj_dir)
+
+# operazioni preliminari
+for(name in names(crescita)){
+  
+  # formato POSIX
+  crescita[[name]]$date <- as.POSIXlt(crescita[[name]]$date, format = "%Y-%m-%d")
+  
+  # settimana
+  crescita[[name]]$week_aligned <- lubridate::week(crescita[[name]]$date)
+  
+  # codifica area
+  if ("area" %in% names(crescita[[name]])) crescita[[name]]$area <- substr(crescita[[name]]$area, 0, 1)
+  else crescita[[name]]$area <- "no_info"
+  
+  # covariata con nome pianta (per unire i dataframes)
+  crescita[[name]] <- crescita[[name]] %>% mutate(pianta = name)
+  
+} 
+
+crescita$tomatoes$number_fruits[is.na(crescita$tomatoes$number_fruits)] <- 0
+crescita$ornamentals$week_aligned[crescita$ornamentals$week_aligned == 2] <- 53
+
+#str(crescita)
+#lapply(crescita, summary)
+#lapply(crescita, function(df) sort(unique(df$week_aligned)))
+# separare ornamentals e alfalfa?
+
+## meteo
+setwd("pannelli/meteo")
+
+# lettura dati
+meteo_filenames <- list.files(pattern = ".xlsx")
+meteo <- lapply(meteo_filenames[-1], function(x) readxl::read_xlsx(x, col_names = F, skip = 3, guess_max = 1e5))
+names(meteo) <- gsub(".xlsx", "", meteo_filenames[-1])
+
+# unico file con nomi variabili
+meteo$FL <- readxl::read_xlsx(meteo_filenames[1], skip = 3, guess_max = 1e5)
+setwd(proj_dir)
+
+# operazioni preliminari
+names(meteo$FL)[1] <- "DataOra"
+names(meteo$SH30) <- names(meteo$FL)
+names(meteo$HSH60) <- names(meteo$SH20) <- names(meteo$SH60) <- names(meteo$FL)[-c(17:22)]
+
+for(name in names(meteo)){
+  
+  # formato POSIX
+  meteo[[name]]$DataOra <- as.POSIXlt(meteo[[name]]$DataOra, format = "%d/%m/%Y %H:%M")
+  
+  # covariata relativa all'esposizione alla luce (per unire i dataframes)
+  meteo[[name]] <- meteo[[name]] %>% mutate(light = name)
+  
+  # riordina colonne in modo che siano coincidenti
+  if(name %in% c("FL", "SH30")) meteo[[name]] <- meteo[[name]] %>% relocate(starts_with("Bfogl"), .after = light)
+  
+}
+#str(meteo)
+#sapply(meteo, summary)
+
+# unione dei dataset (per ora covariate comuni)
+meteo1 <- lapply(meteo, function(x) x[, names(meteo$SH60)]) %>% do.call(rbind, .)
+#sapply(meteo1, function(x) mean(is.na(x)))
+meteo1 <- na.omit(meteo1) # guardare meglio
+
+# compressione su settimana (stessa scala di crescita)
+# per ogni settimana e tipo di esposizione alla luce, media max e min
+meteo_grp <- meteo1 %>%
+  mutate(week_aligned = lubridate::week(meteo1$DataOra)) %>%
+  relocate(week_aligned, .after = DataOra) %>%
+  arrange(light, week_aligned) %>% 
+  group_by(week_aligned, light)
+
+avg <- meteo_grp %>% summarise_at(vars(ends_with("Media")), list(mean))
+max <- meteo_grp %>% summarise_at(vars(ends_with("Max")), list(max)) 
+min <- meteo_grp %>% summarise_at(vars(ends_with("Min")), list(min))
+
+# dataset compresso
+meteo_compresso <- Reduce(function(x,y) merge(x, y, by = c("week_aligned", "light")), list(avg, max, min)) %>% as_tibble()
+#meteo_compresso <- avg
+#names(meteo_compresso)
+
+#str(meteo_compresso)
+#summary(meteo_compresso)
+#sum(is.na(meteo_compresso))
+meteo_compresso$week_aligned[meteo_compresso$week_aligned == 1] <- 53
+meteo_compresso$week_aligned[meteo_compresso$week_aligned == 2] <- 54
+
+
+```
+
+```{r}
+# funzioni grafiche ------------------------------------------------------------
+
+## funzione per visualizzare l'andamento di una variabile di interesse in una 
+# qualsisasi pianta, stratificato per light
+plot_crescita <- function(pianta = "tomatoes", y =  "height", time = "week_aligned", strata = "light"){
+  
+  plot <- crescita[[pianta]] %>% 
+    select(.data[[strata]], .data[[time]], .data[[y]]) %>% 
+    group_by(.data[[strata]], .data[[time]]) %>% 
+    ggplot(aes_string(x = time, y = y, color = strata, shape = strata)) +
+    geom_point() +
+    geom_smooth(method = 'loess', formula = 'y ~ x', alpha = 0.2) +
+    labs(x = "week", y = y, title = paste0("Pianta: ", pianta, "\nVariabile: ", y))
+  
+  plot
+}  
+
+# prove
+#plot_crescita()
+#plot_crescita("potatoes", "diameter1")
+
+#str(crescita$tomatoes)
+covs1 <- c("height", "diameter1", "diameter2", "number_leaves")
+covs2 <- c("number_leaves", "number_flowers", "number_fruits")
+
+p <- lapply(covs2, function(x) plot_crescita("tomatoes", x))
+#ggpubr::ggarrange(plotlist = p, legend = "bottom", common.legend = T)
+```
+
+Da una prima eplorazione dei dati si può vedere come le diverse condizioni di irraggiamento influenzino la crescita delle piante, in maniera differente per le varie misure. Si riporta un esempio di questo fatto per le piante di pomodori. Questo ci porta a pensare a dei modi per riassumere le informazioni relative alla crescita in un'unica variabile, da utilizzare come risposta nella modellazione.
+
+```{r, fig.width=8, fig.height=6}
+p <- lapply(covs1, function(x) plot_crescita("tomatoes", x))
+ggpubr::ggarrange(plotlist = p, legend = "bottom", common.legend = T)
+```
+
+```{r}
+## funzione per visualizzare l'andamento di una misura metereologica di 
+# interesse stratificato per light
+plot_meteo <- function(misura = "TempSuoloMedia"){
+  
+  plot <- meteo_compresso %>% 
+    select(week_aligned, light, starts_with(misura)) %>% 
+    ggplot(aes(x = week_aligned, y = .data[[misura]], color = light)) +
+    geom_point() +
+    geom_line() + 
+    labs(x = "week", y = "", title = misura)
+  plot
+}
+
+# prove
+#plot_meteo("TempSuoloMedia")
+```
+
+<br /> <br /> Similmente, anche le covariate metereologiche rilevate al suolo vengono influenzate dal diverso orientamento dei pannelli.
+
+```{r, fig.width=8, fig.height=6}
+covs <- c("TempSuoloMedia", "UmSuoloMedia", "RadSolMedia", "PrugMedia")
+p <- lapply(covs, function(x) plot_meteo(x))
+ggpubr::ggarrange(plotlist = p, legend = "bottom", common.legend = T)
+```
+
+<br /> <br /> L'analisi delle correlazioni tra le variabili relative
+alla crescita conferma l'idea di poter sintetizzare l'informazione in
+una variabile unica, come si vedrà successivamente. L'unica misura che
+per tutte le piante risulta poco correlata con le altre è il numero di
+fiori.
+
+```{r, fig.dim=c(10, 10)}
+## funzione per visualizzare la matrice di correlazione delle variabili
+# di crescita per le diverse piante
+plot_corr <- function(pianta = "tomatoes"){
+  
+  d <- crescita[[pianta]] %>% 
+    select(!matches("date|week|light|area|plant|pianta"))
+  c <- round(cor(d), 3)
+  require(ggcorrplot)
+  plot <- ggcorrplot(c, hc.order = T, type = "upper", outline.col = "white",
+                     lab = T, ggtheme = ggplot2::theme_void()) +
+    labs(title = paste0("Pianta: ", pianta)) +
+    theme(legend.position = "none")
+  plot
+}  
+
+#plot_corr()
+corrplots <- lapply(setdiff(names(crescita), c("salad", "alfalfa")), plot_corr)
+ggpubr::ggarrange(plotlist = corrplots, legend = "none", font.label = list(size=5))
+```
+
+# Analisi
+
+## Primo e secondo obiettivo
+
+Sulla base dell'analisi degli andamenti delle diverse variabili di crescita e delle correlazioni univariate, risulta ragionevole, almeno per un primo approccio di modellazione, accorpare le variabili relative alla crescita ottenendo un'unica variabile risposta. Si decide dunque di partire da una modellazione definita *macro*, che utilizza come variabile risposta gli *scores* della prima componente principale relativa alle variabili di crescita. Tale approccio si rivela efficace ma limitato nelle possibilità interpretative, pertanto, per favorire un'interpretazione più dettagliata degli effetti di interesse, si decide di modellare singolarmente ciascuna pianta (modellazione *micro*). Come variabile risposta si prende la superficie per *salad*, l'altezza per *alfa-alfa* e il volume per le piante rimanenti. Le variabili risposta vengono normalizzate, così da ottenere un'interpretazione comparabile dell'effetto di *light*.
+
+### Strategia *macro*
+
+Nell'ambito della modellazione *macro*, come variabile risposta si prendono gli *scores* della prima componente principale relativa alle variabili di crescita per tutte le piante. Le variabili sono su diverse scale, in questo modo ci si riporta ad una situazione che permette di unire facilmente i *dataframes* e quindi di utilizzare tutta l'informazione disponibile.
+
+
+```{r, echo = F}
+# strategia 1 ------------------------------------------------------------------
+
+# pca scores e merge crescita
+# aggiunge gli scores a un dataset
+add_pca_scores <- function(df, k = 1){
+  
+  #pca <- princomp((df %>% select(-date, -week, -week_aligned, -light, -area, -plant, -pianta)), cor = T, scores = T)
+  pca <- princomp((df %>% select(!matches("date|week|light|area|plant|pianta"))), cor = T, scores = T)
+  v <- pca$sdev^2
+  #k <- which(cumsum(v/sum(v)) > 0.8)[1]
+  #print(cumsum(v/sum(v))[1:k])
+  
+  s <- pca$scores
+  colnames(s) <- paste0("crescita_pca", 1:ncol(s))
+  crescita_pca <- s[,1:k]
+  
+  out <- cbind(df, crescita_pca) %>% as_tibble()
+  out <-  out %>% select(week_aligned, light, area, plant, pianta, crescita_pca)
+
+  out
+  
+}
+
+# ottengo dataframe unico con score della prima cp
+crescita_ridotto <- crescita[setdiff(names(crescita), c("alfalfa", "ornamentals"))]
+crescita_pca <- lapply(crescita_ridotto, add_pca_scores)
+#names(crescita_pca)
+#lapply(crescita_pca, names)
+crescita_pca <- do.call(rbind, crescita_pca)
+#str(crescita_pca)
+
+# pca scores meteo con lag
+#names(meteo_compresso)
+pca2 <- princomp(meteo_compresso[,-c(1,2)], cor = T)
+#summary(pca2)
+# plot(pca2)
+k <- 5
+meteo_pca <- cbind(meteo_compresso[,c(1,2)], pca2$scores[,1:k]) %>% as_tibble()
+
+nm1 <- paste0("meteo_pcascores_", 1:k)
+nm2 <- paste0("meteo_pcascores_", 1:k, "_lag")
+colnames(meteo_pca)[-c(1:2)] <- nm1
+
+library(data.table)
+meteo_pca <- data.table(meteo_pca)
+meteo_pca[, (nm2) :=  shift(.SD), by=light, .SDcols = nm1]
+meteo_pca <- as_tibble(na.omit(meteo_pca))
+
+# unione dataframe
+d <- merge(crescita_pca, meteo_pca, by = c("week_aligned", "light"), all.x =  T) %>%
+  as_tibble() %>% 
+  mutate_if(is.character, factor)
+#d
+```
+
+Si visualizzano gli andamenti della variabile risposta ottenuta, stratificati per tipo di pianta e modalità di esposizione alla luce.
+
+```{r, fig.width=10}
+# andamento della variabile risposta
+p1 <- d %>% 
+  select(week_aligned, pianta, crescita_pca) %>% 
+  group_by(week_aligned, pianta) %>% 
+  summarise(response = mean(crescita_pca)) %>% 
+  ggplot(aes(x = week_aligned, y = response, color = pianta)) +
+  geom_line() +
+  geom_point() +
+  labs(x = "Settimana", y = "", title = "Andamento della variabile risposta")
+
+p2 <- d %>% 
+  select(week_aligned, light, crescita_pca) %>% 
+  group_by(week_aligned, light) %>% 
+  summarise(response = mean(crescita_pca)) %>% 
+  ggplot(aes(x = week_aligned, y = response, color = light)) +
+  geom_line() +
+  geom_point() +
+  labs(x = "Settimana", y = "", title = "Andamento della variabile risposta")
+
+ggpubr::ggarrange(p1, p2)
+```
+
+```{r, echo = F}
+# modello 1 
+form1 <- as.formula(paste0("crescita_pca ~ poly(week_aligned, 2):pianta + ",
+                          paste0(names(d)[-c(1, 3, 4, 5, 6)], collapse = " + ")), )
+#form1
+m1 <- lm(form1, data = d)
+```
+
+Per la previsione della variabile risposta costruita, si adotta una modellazione lineare, dove l'andamento temporale della crescita delle diverse piante (al netto delle altre covariate di interesse) viene modellato tramite un polinomio di secondo grado sul tempo, specifico per ogni pianta. Per inglobare le informazioni relative al meteo, queste vengono compresse sulla stessa scala (settimanale) delle misurazioni di crescita e riassunte tramite le prime cinque componenti principali; in aggiunta, viene calcolato per tutti gli *scores* il primo *lag*, con l'idea di voler inserire informazione relativa all'andamento recente. Riassumendo, il modello viene specificato come di seguito:
+
+$$
+\begin{aligned}
+\operatorname{crescita\_pca} &= \beta_{0} + \beta_{1}(\operatorname{week\_aligned})\\
+&\quad + \beta_{2}(\operatorname{week\_aligned^2}) \\
+&\quad + \beta_{3}(\operatorname{light}_{\operatorname{HSH60}}) + \beta_{4}(\operatorname{light}_{\operatorname{SH30}})\\
+&\quad + \beta_{5}(\operatorname{light}_{\operatorname{SH60}}) + \beta_{6}(\operatorname{meteo\_pcascores\_1})\\
+&\quad + \beta_{7}(\operatorname{meteo\_pcascores\_2}) + \beta_{8}(\operatorname{meteo\_pcascores\_3})\\
+&\quad + \beta_{9}(\operatorname{meteo\_pcascores\_4}) + \beta_{10}(\operatorname{meteo\_pcascores\_5})\\
+&\quad + \beta_{11}(\operatorname{meteo\_pcascores\_1\_lag}) + \beta_{12}(\operatorname{meteo\_pcascores\_2\_lag})\\
+&\quad + \beta_{13}(\operatorname{meteo\_pcascores\_3\_lag}) + \beta_{14}(\operatorname{meteo\_pcascores\_4\_lag})\\
+&\quad + \beta_{15}(\operatorname{meteo\_pcascores\_5\_lag}) + \beta_{16}(\operatorname{week\_aligned} \times \operatorname{pianta}_{\operatorname{melon}})\\
+&\quad + \beta_{17}(\operatorname{week\_aligned^2} \times \operatorname{pianta}_{\operatorname{melon}}) + \beta_{18}(\operatorname{week\_aligned} \times \operatorname{pianta}_{\operatorname{pumpkins}})\\
+&\quad + \beta_{19}(\operatorname{week\_aligned^2} \times \operatorname{pianta}_{\operatorname{pumpkins}}) + \beta_{20}(\operatorname{week\_aligned} \times \operatorname{pianta}_{\operatorname{potatoes}})\\
+&\quad + \beta_{21}(\operatorname{week\_aligned^2} \times \operatorname{pianta}_{\operatorname{potatoes}}) + \beta_{22}(\operatorname{week\_aligned} \times \operatorname{pianta}_{\operatorname{salad}})\\
+&\quad + \beta_{23}(\operatorname{week\_aligned^2} \times \operatorname{pianta}_{\operatorname{salad}}) + \beta_{24}(\operatorname{week\_aligned} \times \operatorname{pianta}_{\operatorname{tomatoes}})\\
+&\quad + \beta_{25}(\operatorname{week\_aligned^2} \times \operatorname{pianta}_{\operatorname{tomatoes}}) + \varepsilon
+\end{aligned}
+$$ 
+
+Di seguito si riportano la tabella di analisi della varianza del modello e i grafici di analisi dei residui:
+
+```{r results='asis'}
+#stargazer::stargazer(m1, header = F, style = "aer", title = "", type = "latex")
+print(xtable::xtable(anova(m1), type = "html"), comment = F)
+```
+
+```{r, echo = F}
+#summary(m1)
+#anova(m1)
+autoplot(m1, label.size = 2, alpha = 0.5)
+```
+
+```{r, echo = F}
+# modello 2 
+form2 <- as.formula(paste0("crescita_pca ~ poly(week_aligned, 2):pianta + light:pianta + ",
+                           paste0(names(d)[-c(1, 3, 4, 5, 6)], collapse = " + ")))
+#form2
+m2 <- lm(form2, data = d)
+```
+
+Sulla base dei residui e dell'$R^2$, stimato pari a circa $0.94$, si valuta di aver ottenuto un buon adattamento. A questo punto si prova a investigare se risulta significativo l'effetto di interazione tra pianta e luce (l'ipotesi è che la crescita delle piante venga sì infuenzata dalla luce, ma in maniera diversa per diverse piante). Si stima quindi un secondo modello, in cui si aggiunge l'effetto di interazione tra la tipologia di coltura e l'orientamento dei pannelli:
+
+$$
+\begin{aligned}
+\operatorname{crescita\_pca} &= \beta_0 + \beta_{1}(\operatorname{week\_aligned})\\
+&\quad + \beta_{2}(\operatorname{week\_aligned^2})  + \beta_{3}(\operatorname{light}_{\operatorname{HSH60}}) + \beta_{4}(\operatorname{light}_{\operatorname{SH30}})\\
+&\quad + \beta_{5}(\operatorname{light}_{\operatorname{SH60}}) + \beta_{6}(\operatorname{meteo\_pcascores\_1})\\
+&\quad + \beta_{7}(\operatorname{meteo\_pcascores\_2}) + \beta_{8}(\operatorname{meteo\_pcascores\_3})\\
+&\quad + \beta_{9}(\operatorname{meteo\_pcascores\_4}) + \beta_{10}(\operatorname{meteo\_pcascores\_5})\\
+&\quad + \beta_{11}(\operatorname{meteo\_pcascores\_1\_lag}) + \beta_{12}(\operatorname{meteo\_pcascores\_2\_lag})\\
+&\quad + \beta_{13}(\operatorname{meteo\_pcascores\_3\_lag}) + \beta_{14}(\operatorname{meteo\_pcascores\_4\_lag})\\
+&\quad + \beta_{15}(\operatorname{meteo\_pcascores\_5\_lag}) +
+\beta_{16}(\operatorname{week\_aligned} \times \operatorname{pianta}_{\operatorname{melon}})\\
+&\quad + \beta_{17}(\operatorname{week\_aligned^2} \times \operatorname{pianta}_{\operatorname{melon}}) + \beta_{18}(\operatorname{week\_aligned} \times \operatorname{pianta}_{\operatorname{pumpkins}})\\
+&\quad + \beta_{19}(\operatorname{week\_aligned^2} \times \operatorname{pianta}_{\operatorname{pumpkins}}) + \beta_{20}(\operatorname{week\_aligned} \times \operatorname{pianta}_{\operatorname{potatoes}})\\
+&\quad + \beta_{21}(\operatorname{week\_aligned^2} \times \operatorname{pianta}_{\operatorname{potatoes}}) + \beta_{22}(\operatorname{week\_aligned} \times \operatorname{pianta}_{\operatorname{salad}})\\
+&\quad + \beta_{23}(\operatorname{week\_aligned^2} \times \operatorname{pianta}_{\operatorname{salad}}) + \beta_{24}(\operatorname{week\_aligned} \times \operatorname{pianta}_{\operatorname{tomatoes}})\\
+&\quad + \beta_{25}(\operatorname{week\_aligned^2} \times \operatorname{pianta}_{\operatorname{tomatoes}})+
+\beta_{26}(\operatorname{pianta}_{\operatorname{melon}} \times \operatorname{light}_{\operatorname{HSH60}})\\
+&\quad + \beta_{27}(\operatorname{pianta}_{\operatorname{potatoes}} \times \operatorname{light}_{\operatorname{HSH60}}) + \beta_{28}(\operatorname{pianta}_{\operatorname{pumpkins}} \times \operatorname{light}_{\operatorname{HSH60}})\\
+&\quad + \beta_{29}(\operatorname{pianta}_{\operatorname{salad}} \times \operatorname{light}_{\operatorname{HSH60}}) + \beta_{30}(\operatorname{pianta}_{\operatorname{tomatoes}} \times \operatorname{light}_{\operatorname{HSH60}})\\
+&\quad + \beta_{31}(\operatorname{pianta}_{\operatorname{melon}} \times \operatorname{light}_{\operatorname{SH30}}) + \beta_{32}(\operatorname{pianta}_{\operatorname{potatoes}} \times \operatorname{light}_{\operatorname{SH30}})\\
+&\quad + \beta_{33}(\operatorname{pianta}_{\operatorname{pumpkins}} \times \operatorname{light}_{\operatorname{SH30}}) + \beta_{34}(\operatorname{pianta}_{\operatorname{salad}} \times \operatorname{light}_{\operatorname{SH30}})\\
+&\quad + \beta_{35}(\operatorname{pianta}_{\operatorname{tomatoes}} \times \operatorname{light}_{\operatorname{SH30}}) + \beta_{36}(\operatorname{pianta}_{\operatorname{melon}} \times \operatorname{light}_{\operatorname{SH60}})\\
+&\quad + \beta_{37}(\operatorname{pianta}_{\operatorname{potatoes}} \times \operatorname{light}_{\operatorname{SH60}}) + \beta_{38}(\operatorname{pianta}_{\operatorname{pumpkins}} \times \operatorname{light}_{\operatorname{SH60}})\\
+&\quad + \beta_{39}(\operatorname{pianta}_{\operatorname{salad}} \times \operatorname{light}_{\operatorname{SH60}}) + \beta_{40}(\operatorname{pianta}_{\operatorname{tomatoes}} \times \operatorname{light}_{\operatorname{SH60}}) + \varepsilon
+\end{aligned}
+$$ 
+
+Si riporta la tabella di analisi della varianza e i grafici dei residui del modello:
+
+```{r results='asis'}
+#stargazer::stargazer(m2, header = F, style = "aer", title = "", type = "latex")
+print(xtable::xtable(anova(m2), type = "html"), comment = F)
+```
+
+```{r, echo = F}
+#summary(m2)
+#anova(m2)
+autoplot(m2, label.size = 2, alpha = 0.5)
+```
+
+Anche il secondo modello fa registrare un ottimo adattamento e residui soddisfacenti. Nonostante l'incremento di $R^2$ (stimato ora a $0.95$) non sia relativamente grande, l'interazione aggiunta viene stimata come significativa, ad indicare delle differenze tra le piante nella reazione ai diversi regimi di esposizione solare.
+
+Questa prima strada di modellazione *macro* permette di rispondere parzialmente ai primi due quesiti, secondo un approccio globale che modella tutte le piante insieme. Per ora si escludono *alfalfa* e *ornamentals*, che verranno modellate separatamente. L'effetto di *light* e la sua interazione con i tipi diversi di pianta vengono stimati e valutati come significativi, tenendo conto della crescita diversa delle piante nel tempo e dell'andamento metereologico. Tuttavia, a questo punto non è possibile quantificare gli effetti delle diverse condizioni di irraggiamento; per proseguire nell'interpretazione si valuta quindi di adottare una modellazione separata per ogni pianta.
+
+```{r, echo = F}
+# strategia 2 ------------------------------------------------------------------
+
+# seleziona variabili per modellazione
+prepare_df <- function(df, var1 = "diameter1", var2 = "diameter2", var3 = "height"){
+  out <-  df %>%
+    mutate(volume = .data[[var1]] * .data[[var2]] * .data[[var3]]) %>%
+    mutate(volume = (volume-min(volume))/(max(volume)-min(volume))) %>% 
+    select(week_aligned, light, area, plant, pianta, volume)
+  out 
+  
+}
+
+# ottengo dataframe unico con volume
+crescita_ridotto1 <- crescita[setdiff(names(crescita), c("alfalfa", "ornamentals","salad"))]
+crescita_vol <- lapply(crescita_ridotto1, prepare_df)
+crescita_vol <- do.call(rbind, crescita_vol)
+#str(crescita_vol)
+
+# unione dataframe
+d2 <- merge(crescita_vol, meteo_pca, by = c("week_aligned", "light"), all.x =  T) %>%
+  as_tibble() %>% 
+  mutate_if(is.character, factor)
+#d2
+```
+
+### Strategia *micro*
+
+Per proseguire si decide di modellare la crescita di ogni pianta separatamente. Questo dovrebbe favorire un'interpretazione più precisa, seppur più laboriosa. Come variabile risposta si prende il volume per le piante per cui si hanno le misurazioni necessarie, la superficie per *salad* e l'*altezza* per alfalfa. Le variabili risposta vengono normalizzate per poter ottenere un'interpretazione comparabile dell'effetto di *light*, le informazioni metereologiche e l'andamento temporale della crescita vengono utilizzati nella modellazione come nelle strade precedenti.
+
+Per ogni pianta si specifica un modello lineare definito come di seguente:
+
+```{r, echo = F}
+# strategia 3 ------------------------------------------------------------------
+
+# compute and normalize response variables
+prepare_df2 <- function(i){
+  
+  df <- crescita[[i]]
+  df_name <- names(crescita)[i]
+  
+  normalise <- function(x) (x-min(x))/(max(x)-min(x))
+  covs <- c("week_aligned", "light", "plant")
+  
+  if(df_name == "alfalfa"){
+    
+    df$height <- normalise(df$height)
+    response <- "height"
+    #if(length(unique(df$area)) < 2) covs <- setdiff(covs, "area")
+    meteo_pca1 <- meteo_pca # alfalfa ha solo modalita FL e SH
+    meteo_pca1$light <- ifelse(meteo_pca1$light == "FL", "FL", "SH")
+    meteo_pca1 <- meteo_pca1 %>% 
+      group_by(light, week_aligned) %>% 
+      summarise_at(vars(starts_with("meteo")), list(mean))
+    out <- merge(df[,c(covs, response)], meteo_pca1, by = c("week_aligned", "light"), all.x =  T) %>%
+      as_tibble() %>% 
+      mutate_if(is.character, factor)
+    return(out)
+
+  }
+
+  else if (df_name == "salad"){
+
+    df$surface <- df$diameter1 * df$diameter2
+    df$surface <- normalise(df$surface)
+    response <- "surface"
+    #if(length(unique(df$area)) < 2) covs <- setdiff(covs, "area")
+    out <- merge(df[,c(covs, response)], meteo_pca, by = c("week_aligned", "light"), all.x =  T) %>%
+      as_tibble() %>% 
+      mutate_if(is.character, factor)
+    return(out)
+
+  }
+
+  else{
+    
+    df$surface <- df$diameter1 * df$diameter2
+    df$volume <- df$height * df$surface
+    df$volume <- normalise(df$volume)
+    response <- "volume"
+    #if(length(unique(df$area)) < 2) covs <- setdiff(covs, "area")
+    out <- merge(df[,c(covs, response)], meteo_pca, by = c("week_aligned", "light"), all.x =  T) %>%
+      as_tibble() %>% 
+      mutate_if(is.character, factor)
+    return(out)
+
+  }
+  
+}
+
+crescita2 <- lapply(seq_along(crescita), prepare_df2)
+names(crescita2) <- names(crescita)
+#str(crescita2) 
+
+# get model for every plant
+get_models <- function(i){
+  
+  df <- crescita2[[i]]
+  df_name <- names(crescita2)[i]
+  
+  covs <- c("week_aligned", "light", "meteo_pcascores_1",
+            "meteo_pcascores_2", "meteo_pcascores_3", "meteo_pcascores_4", 
+            "meteo_pcascores_5", "meteo_pcascores_1_lag", "meteo_pcascores_2_lag",
+            "meteo_pcascores_3_lag", "meteo_pcascores_4_lag", "meteo_pcascores_5_lag")
+  #if("area" %in% names(df)) covs <- c(covs, "area")
+  response <- "volume"
+  response <- ifelse(df_name == "salad", "surface", response)
+  response <- ifelse(df_name == "alfalfa", "height", response)
+  
+  form <- as.formula(paste0(response, " ~ poly(week_aligned, 2) + ", # nb l'andamento sembra ottimo anche con effetto lineare semplice
+                            paste0(covs[-1], collapse = " + ")))
+  model <- lm(form, data = df)
+  model
+  
+}
+
+models <- lapply(seq_along(crescita2), get_models)
+names(models) <- names(crescita2)
+
+
+
+extract_eq(models$tomatoes,
+  wrap = TRUE,terms_per_line=2,
+  operator_location = "start",
+  intercept = "\\beta_0",
+  greek = "\\beta",
+  raw_tex = TRUE,
+  use_coefs=FALSE,
+  show_distribution =TRUE
+)
+```
+
+Il modello ha la medesima specificazione, nella parte relativa alle covariate, per la regressione su *salad* e *alfalfa*. Nei modelli, la variabile *week_aligned* rappresenta l'andamento temporale, le variabili *light* fanno riferimento ciascuna a una specifica inclinazione dei pannelli, infine seguono le covariate relative alla situazione metereologica dell'ultimo periodo. Di seguito, per ogni modello stimato, si riportano l'$R^2$ aggiustato, la significatività globale della variabile *light* secondo la tabella *anova* e le stime dei coefficienti associati.
+
+```{r,echo=FALSE}
+# print results for every model
+print_results <- function(i){
+  
+  model <- models[[i]]
+  df_name <- names(models)[i]
+  
+  cat("Dataset: ", df_name, "\n")
+  cat("Variabile risposta: ", as.character(formula(model))[[2]], "\n")
+  
+  r <- summary(model)$adj.r.squared
+  cat("R2 aggiustato: " , round(r, 4), "\n")
+  
+  a <- as.matrix(anova(model))
+  cat("Variabile light: \n\tsignifcatività globale: \n")
+  print(signif(a[grepl("light", rownames(a)), ], 4))
+  
+  s <- summary(model)$coefficients
+  cat("\n\tStima dei coefficienti: \n")
+  print(s[grepl("light", rownames(s)), ])
+  cat("\n\n")
+  
+  return('')
+  
+}
+
+#lapply(models, summary)
+#lapply(models, anova)
+sapply(seq_along(models), print_results)
+
+
+
+
+```
+
+Nello specifico, i modelli presentano un ottimo andamento e permettono di intepretare nel dettaglio l'effetto delle diverse condizioni di irraggiamento. In generale si può affermare come l'effetto dell'inclinazione dei pannelli sia significativo nell'influenzare la crescita delle diverse piante. L'unica tipologia di pianta per cui non sembra valere questa considerazione è l'erba medica, pianta della quale è risaputo come la crescita non sia particolarmente influenzata dall'esposizione solare. Vanno fatte delle considerazioni a parte per le piante ornamentali, per le quali non si riesce ad ottenere un adattamento
+comparabile agli altri modelli. Si è a conoscenza del fatto che dentro
+*ornamentals* sono presenti tre diversi tipi di piante, tuttavia non
+avendo a disposizione questa informazione come covariata per la
+modellazione, non è possibile utilizzarla per cogliere la variabilità
+residua.
+
+```{r}
+plot_crescita("ornamentals")
+```
+
+Dal grafico si può notare come alla stessa condizione di irraggiamento siano associate piante con un valore di altezza molto alto e molto basso. Questo indica come, in assenza di una variabile che identifichi le diverse tipologie di piante, sia impossibile cogliere con un modello questo tipo di variabilità.
+
+## Terzo obiettivo
+
+Come ultimo aspetto di interesse, si vuole sviluppare uno strumento semplice da fornire all'agronomo. Con i dati di *input* (relativi alla crescita della pianta e all'andamento del meteo) il modello deve essere in grado di indicare come regolare i pannelli per ottimizzare la produzione agricola, massimizzando la crescita.
+
+Si suppone che l'agronomo fornisca:
+
+-   il tipo di pianta;
+-   da quante settimane è stata piantata (o la corrispondente settimana
+    dell'anno);
+-   le informazioni metereologiche, nello stesso formato di in cui sono state fornite inizialmente, per la settimana di interesse e la precedente, per tutte le condizioni di irraggiamento o solo per quella in cui sta crescendo la pianta.
+
+Si procede a comprimere le informazioni metereologiche ottenendo i valori settimanali, successivamente tramite i *loadings* della PCA stimata precedentemente si ottengono gli *scores* e i *lag* per la settimana di interesse.
+
+```{r}
+# covariate
+pianta <- "tomatoes"
+# l'agronomo potrebbe fornirci:
+# - a) le informazioni meteo in formato orario per la condizione di irraggiamento
+#      in cui la pianta sta crescendo, per la settimana di interesse e quella precedente
+# - b) le informazioni meteo per la settimana di interesse e quella precedente,
+#      per tutte le condizioni di irraggiamento
+meteo_new <- meteo_compresso %>%
+  filter(week_aligned == 23 | week_aligned == 24) %>%
+  select(-light) %>% 
+  group_by(week_aligned) %>% 
+  summarise(across(everything(), list(mean)))
+set.seed(42)
+meteo_new <- cbind(meteo_new[,1], apply(meteo_new[,-1], 2 , jitter))
+names(meteo_new)[-1] <- names(meteo_compresso)[-c(1,2)]
+meteo_new
+# prendiamo questo come punto di partenza per le informazioni meteo fornite,
+# magari scrivere una funzione che passa da info in formato originale a questo formato
+get_meteo_new <- function(){
+  ...
+}
+```
+
+A questo punto, si hanno a disposizione tutte le covariate per effettuare previsioni sulla base dei modelli stimati per ogni pianta, a meno dell'informazione sulle condizioni di irraggiamento. Si procede calcolando le previsioni per tutte le possibili combinazioni di irraggiamento e delle altre covariate fissate. A questo punto si sceglie la condizione che porta ad una maggiore crescita prevista. Vengono anche presentate le previsioni in scala relativa, per facilitare l'individuazione della miglior condizione di irraggiamento da parte del committente.
+
+```{r, echo = F}
+# funzione per la scelta della condzione migliore di irraggiamento
+choose_light <- function(pianta = "tomatoes", week = 24, meteo_new = meteo_new){
+  
+  # ottenendo $\widehat{volume}^{FL}$, $\widehat{volume}^{HSH60}$,
+  #$\widehat{volume}^{SH30}$ e $\widehat{volume}^{SH60}$.
+  
+  #\begin{align*}
+  #\widehat{volume}_{relativo} = \dfrac{\widehat{volume} - \min(\widehat{volume})}
+  #{\max(\widehat{volume}) - \min(\widehat{volume})}
+  #\end{align*}
+  
+  # covariates
+  scores <- predict(pca2, meteo_new[,-1])[,1:k]
+  scores_names <- names(crescita2[['tomatoes']])[-c(1:4)]
+  mt <- c(scores[2,], scores[1,])
+  nx <- c(week, "FL", mt)
+  names(nx) <- c("week_aligned", "light", scores_names)
+  nx <- as.data.frame(t(nx))
+  nx[,-2] <- as.numeric(nx[,-2])
+  nx <- nx[rep(1,4),]
+  nx$light <- c("FL", "HSH60", "SH30", "SH60")
+  nx$light <- as.factor(nx$light)
+  rownames(nx) <- nx$light
+  
+  # predictions
+  p <- predict(models[[pianta]], newdata = nx)
+  out <- rbind(p, (p-min(p))/(max(p)-min(p)))
+  rownames(out) <- c("Scala originale", "Scala relativa")
+  
+  # output
+  cat("\nPrevisioni:")
+  print(knitr::kable(out, digits = 2))
+  cat("\nPer massimizzare la crescita della pianta, nella settimana di riferimento e tenendo conto\n delle condizioni metereologiche, si consiglia la condizione di irraggiamento", names(p)[which.max(p)])
+  invisible(out)
+
+}
+
+```
+
+Si riportano due esempi, rispettivamente per le piante *tomatoes* e
+*melons*:
+
+```{r, echo = F}
+p <- choose_light(pianta = "tomatoes", week = 24, meteo_new = meteo_new)
+
+choose_light(pianta = "melon", week = 24, meteo_new = meteo_new)
+```
+
+```{r, echo = F}
+# get model for every plant
+get_models2 <- function(i){
+  
+  df <- crescita2[[i]]
+  df_name <- names(crescita2)[i]
+  
+  covs <- c("week_aligned", "light")
+  #if("area" %in% names(df)) covs <- c(covs, "area")
+  response <- "volume"
+  response <- ifelse(df_name == "salad", "surface", response)
+  response <- ifelse(df_name == "alfalfa", "height", response)
+  
+  form <- as.formula(paste0(response, " ~ poly(week_aligned, 2):light + ",
+                            paste0(covs[-1], collapse = " + ")))
+  model <- lm(form, data = df)
+  model
+  
+}
+
+models2 <- lapply(seq_along(crescita2), get_models2)
+names(models2) <- names(crescita2)
+
+#lapply(models2, summary)
+#lapply(models2, anova)
+#sapply(seq_along(models2), print_results)
+
+# funzione che visualizza le previsioni
+explore_light <- function(pianta = "tomatoes"){
+  
+  # covariates
+  nx <- as.data.frame(expand.grid(week_aligned = sort(unique(crescita2[[pianta]]$week_aligned)),
+                    light = levels(crescita2[[pianta]]$light)))
+  #if(!is.null(area)) nx$area <- as.factor(area)
+  
+  # predictions
+  p <- predict(models2[[pianta]], newdata = nx, interval = "prediction")
+  nx <- cbind(nx, p)
+  pl <- ggplot(nx, aes(x = week_aligned, y = fit, shape = light, color = light, fill = light)) +
+    geom_point() + geom_line() + 
+    geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0.3) +
+    labs(x = "week", y = "growth prediction", title = paste0("Pianta: ", pianta))
+  pl
+  
+}
+
+#explore_light("tomatoes", area = 2)
+#explore_light("melon", area = NULL)
+```
+
+```{r, echo = F}
+# riassunto
+new_plant_info <- list(pianta = "tomatoes",
+                       week = 24,
+                       meteo_info = meteo_new)
+new_plant_info2 <- list(pianta = "melon",
+                       week = 24,
+                       meteo_info = meteo_new)
+
+helper <- function(npi){
+  
+  plot(explore_light(npi$pianta, new_plant_info$area))
+  choose_light(npi$pianta, npi$week, npi$area, meteo_new = npi$meteo_info)
+  
+}
+
+#helper(new_plant_info)
+#helper(new_plant_info2)
+```
