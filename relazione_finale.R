@@ -15,9 +15,6 @@ library(tidyverse)
 
 rm(list = ls())
 
-proj_dir <- "~/R_Jobs/StatIterazione/progetto_iterazione"
-if (normalizePath(getwd()) != normalizePath(proj_dir)) setwd(proj_dir)
-
 library(tidyverse)
 library(ggfortify)
 library(equatiomatic)
